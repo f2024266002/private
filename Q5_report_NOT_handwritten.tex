@@ -1,0 +1,164 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+
+% numbers.tex, counts_table.tex, results_table.tex, transfer_table.tex are written by the notebook
+\input{numbers.tex}
+
+\title{Classical Machine Learning for Knee Osteoarthritis Severity Grading\\
+\large with External Validation on a Second Hospital Dataset}
+\author{NAME-1 (REG-1) \and NAME-2 (REG-2)\\[2pt]
+CS446 Machine Learning -- Homework 2, Question 5\\
+University of Management and Technology (UMT)}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Knee osteoarthritis (OA) is graded from radiographs with the five-level Kellgren--Lawrence (KL) scale.
+We predict the KL grade from knee X-rays using histogram-of-oriented-gradients (HOG) features, PCA and four
+classical classifiers (k-NN, Gaussian naive Bayes, an RBF support vector machine with a hard margin, and a softmax
+regression written from scratch). Models are trained and validated on the Osteoarthritis Initiative (OAI) based
+Kaggle dataset and tested both internally and on an external dataset from a different hospital. The best model
+on validation data was \bestModel{}; it reached a balanced accuracy of \bestKagBA{} on the internal test set but only
+\bestDigBA{} on the external set, which shows a clear domain shift. A linear hard-margin SVM separates KL0 from KL4
+perfectly on the training set.
+\end{abstract}
+
+\section{Introduction}
+Osteoarthritis of the knee is a common degenerative joint disease. Doctors read a radiograph and assign a
+Kellgren--Lawrence grade~\cite{kl1957}: KL0 healthy, KL1 doubtful, KL2 minimal, KL3 moderate and KL4 severe,
+based on joint-space narrowing, osteophytes and sclerosis. The grading is subjective; two experts often disagree
+on neighbouring grades. An automatic grader can support screening, but it is only useful if it keeps working on
+images from other hospitals. In this homework we build classical (non-deep) classifiers and test them on a
+second dataset to measure this.
+
+\section{Datasets}
+\textbf{Kaggle / OAI dataset.} Knee Osteoarthritis Severity Grading Dataset by Chen~\cite{chen2018}
+(Kaggle copy): $224\times224$ knee-joint crops already split into train, validation and test folders with
+sub-folders 0--4 for the KL grade. We used it for training, validation and the internal test.\\
+\textbf{Digital Knee X-ray dataset.} Gornale and Patravali~\cite{gornale2020}: 1650 radiographs graded by two
+medical experts. We used it only as an external test set with the grades of Expert-I as reference.
+
+\begin{table}[H]\centering
+\input{counts_table.tex}
+\caption{Number of images per KL grade after removing duplicate files.}
+\end{table}
+
+\textbf{Pre-processing.} 16-bit images were converted to floating point, only the left knee of bilateral images
+was kept, duplicate files were removed, every image was resized to $64\times64$ and its histogram was
+equalised. We checked that no patient (file-name prefix) appears in two Kaggle splits. The classes are strongly
+imbalanced (KL0 is the largest class, KL4 the smallest), and the two datasets look different
+(Figure~\ref{fig:samples}).
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.85\textwidth]{figures/samples.png}
+\caption{Example images of each KL grade from the Kaggle dataset (top) and the Digital dataset (bottom).}
+\label{fig:samples}
+\end{figure}
+
+\section{Methods}
+\textbf{Features.} For each image we computed HOG features~\cite{dalal2005} (9 orientations, $8\times8$ cells,
+$2\times2$ blocks), giving 1764 values. A \texttt{StandardScaler} and PCA with 100 components (keeping
+\pcaVar{} of the variance) were fitted on the training set only and then applied to the validation and test sets,
+so that no information leaks from them.
+
+\textbf{Classifiers} (scikit-learn~\cite{sklearn} unless stated otherwise):
+\begin{itemize}
+\item \textbf{k-NN} on the PCA features; $k\in\{1,3,5,9,15,25,41\}$ and the metric (Euclidean or Manhattan) were chosen
+by validation balanced accuracy. Selected: $k=\bestK$, \bestMetric{} distance.
+\item \textbf{Gaussian naive Bayes} on the PCA features.
+\item \textbf{Hard-margin SVM}~\cite{cortes1995}: \texttt{SVC} with $C=10^{10}$ (not tuned) emulates a hard margin.
+A linear kernel on the standardised 1764-D HOG vectors was used for KL0 vs KL4, and an RBF kernel
+(one-vs-one, \texttt{gamma="scale"}) on the PCA features for the five grades.
+\item \textbf{Softmax regression} implemented with NumPy only: stable softmax, mean cross-entropy with an
+$L_2$ penalty $\lambda=10^{-3}$ on the weights (not the bias) and batch gradient descent ($\eta=0.1$, 1500 iterations) on
+the standardised PCA features.
+\end{itemize}
+
+\textbf{Protocol.} Training on the Kaggle training set, hyper-parameters (k, metric) by balanced accuracy on the
+validation set, a single evaluation on the Kaggle test set and on the Digital set. Metrics are accuracy, balanced
+accuracy, macro-F1 and quadratic weighted kappa (QWK). Balanced accuracy and QWK are used because the classes are
+imbalanced and the grades are ordered.
+
+\section{Results}
+\begin{table}[H]\centering
+\input{results_table.tex}
+\caption{Performance of the four models on the Kaggle test set (internal) and on the Digital set (external).}
+\label{tab:results}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.48\textwidth]{figures/knn_curves.png}
+\includegraphics[width=0.48\textwidth]{figures/softmax_loss.png}
+\caption{Left: validation balanced accuracy of k-NN for different k and both metrics. Right: training and
+validation loss of the softmax regression written from scratch.}
+\label{fig:curves}
+\end{figure}
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.95\textwidth]{figures/confusion_best.png}
+\caption{Confusion matrices of the best model (\bestModel{}) on the Kaggle test set (left) and on the Digital set (right).}
+\label{fig:cm}
+\end{figure}
+
+\textbf{Hard-margin SVM check.} On the \svmBinNtrain{} KL0/KL4 training images the linear SVM gave
+$\min_i y_i f(x_i)=\svmBinMin{}$, i.e.\ the constraints $y_if(x_i)\ge1$ hold up to rounding and the data are linearly
+separable in the 1764-D space. It used \svmBinSV{} support vectors, had a margin width $2/\|\mathbf{w}\|=\svmBinMargin{}$,
+and obtained a balanced accuracy of \svmBinBAk{} on the Kaggle test set and \svmBinBAd{} on the Digital set (KL0/KL4 images only).
+The RBF-SVM for five grades reached a training accuracy of \rbfTrainAcc{} with \rbfSV{} of \nTrain{} training images as support vectors.
+
+\textbf{Agreement between experts and in-domain training.} Cohen's kappa between the two Digital experts is
+\kappaExperts{} (quadratic weighted: \kappaExpertsQ{}). The best model trained within the Digital set (70\,\% stratified split) is
+compared with the Kaggle-trained model on the same 30\,\% hold-out in Table~\ref{tab:transfer}.
+
+\begin{table}[H]\centering
+\input{transfer_table.tex}
+\caption{Best model on the same 30\,\% Digital hold-out: trained on Kaggle (external) vs trained within Digital.}
+\label{tab:transfer}
+\end{table}
+
+\section{Discussion}
+% EDIT THIS SECTION after you have read your own numbers. Keep the sentences that are true for your results.
+\textbf{Best model.} On validation data \bestModel{} was best. On the internal test set it obtained accuracy \bestKagAcc{},
+balanced accuracy \bestKagBA{} and QWK \bestKagQWK{}.
+
+\textbf{Binary vs five-grade task.} KL0 and KL4 are at opposite ends of the scale and look very different, so a
+linear hard-margin SVM can separate them; the five-grade problem contains neighbouring grades (for example KL1 vs KL2)
+that even experts confuse, so it is much harder. A hard margin on noisy labels forces the RBF-SVM to memorise noise
+(training accuracy \rbfTrainAcc{}, many support vectors).
+
+\textbf{External validation.} On the Digital set the best model obtained accuracy \bestDigAcc{}, balanced accuracy
+\bestDigBA{} and QWK \bestDigQWK{}. The difference to the internal test set is caused by domain shift: different
+X-ray machines, exposure, cropping and patient population change the HOG/PCA features. Training inside the
+Digital set gave balanced accuracy \inDomBA{} compared to \transBA{} for the Kaggle-trained model on the same hold-out,
+and the agreement between the two experts (kappa \kappaExperts{}) shows how noisy the reference labels themselves are.
+
+\textbf{Limitations.} Only 64$\times$64 images and hand-crafted HOG features were used, which lose fine details such
+as small osteophytes; the hyper-parameters were chosen on one validation split; KL4 has very few images; the second
+dataset is graded by only two experts; and no deep learning or data augmentation was tried.
+
+\section{Conclusion}
+Classical classifiers on HOG and PCA features can grade knee OA to some extent, and the hard-margin SVM
+check confirmed that the extreme grades KL0 and KL4 are linearly separable. However, performance drops on images from another
+hospital, so external validation, balanced metrics and ordinal metrics such as QWK are necessary before any clinical use.
+
+\begin{thebibliography}{9}
+\bibitem{kl1957} J.~H. Kellgren and J.~S. Lawrence, ``Radiological assessment of osteo-arthrosis,''
+\textit{Annals of the Rheumatic Diseases}, 16(4):494--502, 1957.
+\bibitem{chen2018} P.~Chen, ``Knee Osteoarthritis Severity Grading Dataset,'' Mendeley Data, V1, 2018,
+doi:10.17632/56rmx5bjcr.1.
+\bibitem{gornale2020} S.~Gornale and P.~Patravali, ``Digital Knee X-ray Images,'' Mendeley Data, V1, 2020,
+doi:10.17632/t9ndx37v5h.1.
+\bibitem{dalal2005} N.~Dalal and B.~Triggs, ``Histograms of oriented gradients for human detection,''
+in \textit{CVPR}, 2005.
+\bibitem{cortes1995} C.~Cortes and V.~Vapnik, ``Support-vector networks,'' \textit{Machine Learning}, 20:273--297, 1995.
+\bibitem{sklearn} F.~Pedregosa et al., ``Scikit-learn: Machine learning in Python,''
+\textit{Journal of Machine Learning Research}, 12:2825--2830, 2011.
+\end{thebibliography}
+\end{document}
